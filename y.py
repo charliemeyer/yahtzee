@@ -142,9 +142,13 @@ strategies = {
     "yahtzee": {
         "elligible": has(5),
         "score": lambda dice: 50,
-        "max": 50
+        "max": 50,
     }
 }
+
+# todo: test total score
+bonus_yahtzee_order = ["one", "two", "three", "four", "five", "six", "four_of_a_kind",
+                       "three_of_a_kind", "full_house", "small_straight", "large_straight", "chance", "yahtzee"]
 
 
 def run_tests():
@@ -203,12 +207,33 @@ def run_tests():
     assert(get_score("yahtzee", [1, 1, 1, 1, 1]) == 50)
 
 
-def get_score(strategy_name, dice):
-    strategy = strategies[strategy_name]
-    if strategy["elligible"](dice):
-        return strategy["score"](dice)
+def get_score(strategy_name, dice, used_strategies):
+    score = 0
+    if (strategy_name == "yahtzee" and strategy_name in used_strategies):
+        score += 100
+        for strategy in bonus_yahtzee_order:
+            if strategy in used_strategies:
+                continue
+            # won't be yahtzee again so recursion is safe
+            score += get_score(strategy_name, dice, used_strategies)
+            if score > 0:
+                return (score, strategy)
+
     else:
-        return 0
+        strategy = strategies[strategy_name]
+        if strategy["elligible"](dice):
+            return score += strategy["score"](dice)
+    return (score, strategy)
+
+
+def get_total_score(game_scores):
+    upper = ["one", "two", "three", "four", "five", "six"]
+    upper_scores = [game_scores[u] for u in upper]
+    total_score = 0
+    if sum(upper_scores) >= 63:
+        total_score += 35
+    total_score += sum([game_scores[k] for k in game_scores.keys()])
+    return total_score
 
 
 def get_dice():
@@ -220,7 +245,7 @@ def get_best_strategy(dice, used_strategies):
     best_ratio = 0
     best_score = 0
     for strategy_name in strategies:
-        if strategy_name in used_strategies:
+        if strategy_name in used_strategies and strategy_name != "yahtzee":
             continue
         score = get_score(strategy_name, dice)
         ratio = score / strategies[strategy_name]["max"]
@@ -235,60 +260,61 @@ def get_best_strategy(dice, used_strategies):
             best_score = score
         if best_strategy == "":
             best_strategy = strategy_name
-    return best_strategy
+    return (best_strategy, best_ratio)
+
+
+def get_best_sub(dice, used_strategies):
+    best_sub = ()
+    best_sub_ratio = 0
+    for sub in yahtzee_subsets:
+        sub_ratios = []
+        for sim_num in range(100):
+            sim_dice = [roll() if i in sub else dice[i]
+                        for i in range(len(dice))]
+            (best_strat, best_ratio) = get_best_strategy(
+                sim_dice, used_strategies)
+            sub_ratios.append(best_ratio)
+        sub_average_ratio = sum(sub_ratios) / len(sub_ratios)
+        if sub_average_ratio > best_sub_ratio:
+            best_sub = sub
+            best_sub_ratio = sub_average_ratio
+    return best_sub
 
 
 def run_yahtzee():
     used_strategies = set()
     game_score = 0
+    game_scores = {}
     while len(used_strategies) < len(strategies):
         dice_1 = get_dice()
-        best_sub = ()
-        for sub in yahtzee_subsets:
-            best_sub_ratio = 0
-            sub_ratios = []
-            for sim_num in range(100):
-                sim_dice_2 = [roll() if i in sub else dice_1[i]
-                              for i in range(len(dice_1))]
-                best_ratio = 0
-                best_score = 0
-                for strategy_name in strategies:
-                    if strategy_name in used_strategies:
-                        continue
-                    score = get_score(strategy_name, sim_dice_2)
-                    ratio = score / strategies[strategy_name]["max"]
-                    if ratio == best_ratio:
-                        if score > best_score:
-                            best_score = score
-                            best_ratio = ratio
-                    elif ratio > best_ratio:
-                        best_ratio = ratio
-                        best_score = score
-                sub_ratios.append(best_ratio)
-            sub_average_ratio = sum(sub_ratios) / len(sub_ratios)
-            if best_sub == ():
-                best_sub = sub
-                best_sub_ratio = sub_average_ratio
-            if sub_average_ratio > best_sub_ratio:
-                best_sub = sub
-                best_sub_ratio = sub_average_ratio
-
-        real_dice_2 = [roll() if i in best_sub else dice_1[i]
-                       for i in range(len(dice_1))]
-        real_strat = get_best_strategy(real_dice_2, used_strategies)
-        real_score = get_score(real_strat, real_dice_2)
-        game_score += real_score
+        best_sub_1 = get_best_sub(dice_1, used_strategies)
+        # print("have", dice_1, "swapping", best_sub_1)
+        dice_2 = [roll() if i in best_sub_1 else dice_1[i]
+                  for i in range(len(dice_1))]
+        best_sub_2 = get_best_sub(dice_2, used_strategies)
+        # print("have", dice_2, "swapping", best_sub_2)
+        dice_3 = [roll() if i in best_sub_2 else dice_2[i]
+                  for i in range(len(dice_2))]
+        (try_strat, real_ratio) = get_best_strategy(dice_3, used_strategies)
+        (real_score, real_strat) = get_score(
+            try_strat, dice_3, used_strategies)
+        game_scores[real_strat] = real_score
         used_strategies.add(real_strat)
-
-        print(
-            f"using strategy {real_strat} for dice {real_dice_2}, scored {real_score}")
-    return game_score
+        # print(
+        #     f"using strategy {real_strat} for dice {dice_3}, scored {real_score}")
+    return game_scores
 
 
 scores = []
 
-for i in range(1):
-    scores.append(run_yahtzee())
+for i in range(10):
+    print("-------- game", i, "-------------")
+    game_scores = run_yahtzee()
+    for strat in strategies:
+        print(strat, "=", game_scores[strat])
+    total_score = get_total_score(game_scores)
+    print("total =", total_score)
+    scores.append(total_score)
 
 print(f"max = {max(scores)}")
 print(f"avg = {sum(scores) / len(scores)}")
